@@ -1,11 +1,11 @@
-"""Serialization helpers for Tweet models."""
+"""Serialization helpers for Tweet and UserProfile models."""
 
 from __future__ import annotations
 
 import json
 from typing import Any, Dict, Iterable, List, Optional
 
-from .models import Author, Metrics, Tweet, TweetMedia
+from .models import Author, Metrics, Tweet, TweetMedia, UserProfile
 
 
 def tweet_to_dict(tweet: Tweet) -> Dict[str, Any]:
@@ -127,6 +127,34 @@ def tweets_from_json(raw: str) -> List[Tweet]:
 def tweets_to_json(tweets: Iterable[Tweet]) -> str:
     """Serialize Tweet objects to pretty JSON."""
     return json.dumps([tweet_to_dict(tweet) for tweet in tweets], ensure_ascii=False, indent=2)
+
+
+def user_profile_to_dict(user: UserProfile) -> Dict[str, Any]:
+    """Convert a UserProfile dataclass into a JSON-safe dict."""
+    return {
+        "id": user.id,
+        "name": user.name,
+        "screenName": user.screen_name,
+        "bio": user.bio,
+        "location": user.location,
+        "url": user.url,
+        "followers": user.followers_count,
+        "following": user.following_count,
+        "tweets": user.tweets_count,
+        "likes": user.likes_count,
+        "verified": user.verified,
+        "profileImageUrl": user.profile_image_url,
+        "createdAt": user.created_at,
+    }
+
+
+def users_to_json(users: Iterable[UserProfile]) -> str:
+    """Serialize UserProfile objects to pretty JSON."""
+    return json.dumps(
+        [user_profile_to_dict(user) for user in users],
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def _optional_int(value: Any) -> Optional[int]:

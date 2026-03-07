@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from .constants import BEARER_TOKEN, USER_AGENT
 from .models import Author, Metrics, Tweet, TweetMedia, UserProfile
 
 try:
@@ -25,11 +26,6 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-
-BEARER_TOKEN = (
-    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
-    "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-)
 
 FALLBACK_QUERY_IDS = {
     # Read operations
@@ -99,12 +95,6 @@ FEATURES = {
     "responsive_web_grok_community_note_auto_translation_is_enabled": False,
     "responsive_web_enhance_cards_enabled": False,
 }
-
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
 
 _cached_query_ids = {}  # type: Dict[str, str]
 _bundles_scanned = False
@@ -364,6 +354,7 @@ class TwitterClient:
                 "withBirdwatchNotes": False,
                 "withVoice": True,
             },
+            override_base_variables=True,
         )
 
     def fetch_search(self, query, count=20, product="Top"):
@@ -635,12 +626,31 @@ class TwitterClient:
 
     def _api_get(self, url):
         # type: (str) -> Dict[str, Any]
-        """Make authenticated GET request to Twitter API with retry on 429."""
+        """Make authenticated GET request to Twitter API."""
+        return self._api_request(url, method="GET")
+
+    def _graphql_post(self, operation_name, variables, features=None):
+        # type: (str, Dict[str, Any], Optional[Dict[str, Any]]) -> Dict[str, Any]
+        """Issue GraphQL POST request."""
+        query_id = _resolve_query_id(operation_name, prefer_fallback=True)
+        url = "https://x.com/i/api/graphql/%s/%s" % (query_id, operation_name)
+        body = {"variables": variables, "queryId": query_id}
+        if features:
+            body["features"] = features
+        return self._api_request(url, method="POST", body=body)
+
+    def _api_request(self, url, method="GET", body=None):
+        # type: (str, str, Optional[Dict[str, Any]]) -> Dict[str, Any]
+        """Make authenticated request to Twitter API with retry on rate limits.
+
+        Handles both GET and POST. Retries on HTTP 429 and JSON error code 88.
+        """
         self._ensure_client_transaction()
-        headers = self._build_headers(url=url)
+        headers = self._build_headers(url=url, method=method)
+        encoded_body = json.dumps(body).encode("utf-8") if body else None
 
         for attempt in range(self._max_retries + 1):
-            request = urllib.request.Request(url)
+            request = urllib.request.Request(url, data=encoded_body, method=method)
             for key, value in headers.items():
                 request.add_header(key, value)
 
@@ -656,8 +666,8 @@ class TwitterClient:
                     )
                     time.sleep(wait)
                     continue
-                body = exc.read().decode("utf-8", errors="replace")
-                message = "Twitter API error %d: %s" % (exc.code, body[:500])
+                resp_body = exc.read().decode("utf-8", errors="replace")
+                message = "Twitter API error %d: %s" % (exc.code, resp_body[:500])
                 raise TwitterAPIError(exc.code, message)
             except urllib.error.URLError as exc:
                 raise TwitterAPIError(0, "Twitter API network error: %s" % exc.reason)
@@ -683,58 +693,6 @@ class TwitterClient:
             return parsed
 
         # Should not be reached, but just in case
-        raise TwitterAPIError(429, "Rate limited after %d retries" % self._max_retries)
-
-    def _graphql_post(self, operation_name, variables, features=None):
-        # type: (str, Dict[str, Any], Optional[Dict[str, Any]]) -> Dict[str, Any]
-        """Issue GraphQL POST request."""
-        query_id = _resolve_query_id(operation_name, prefer_fallback=True)
-        url = "https://x.com/i/api/graphql/%s/%s" % (query_id, operation_name)
-        body = {"variables": variables, "queryId": query_id}
-        if features:
-            body["features"] = features
-        return self._api_post(url, body)
-
-    def _api_post(self, url, body):
-        # type: (str, Dict[str, Any]) -> Dict[str, Any]
-        """Make authenticated POST request to Twitter API."""
-        self._ensure_client_transaction()
-        headers = self._build_headers(url=url, method="POST")
-        data = json.dumps(body).encode("utf-8")
-
-        for attempt in range(self._max_retries + 1):
-            request = urllib.request.Request(url, data=data, method="POST")
-            for key, value in headers.items():
-                request.add_header(key, value)
-
-            try:
-                with urllib.request.urlopen(request, context=_create_ssl_context(), timeout=30) as response:
-                    payload = response.read().decode("utf-8")
-            except urllib.error.HTTPError as exc:
-                if exc.code == 429 and attempt < self._max_retries:
-                    wait = self._retry_base_delay * (2 ** attempt)
-                    logger.warning(
-                        "Rate limited (429), retrying in %.1fs (attempt %d/%d)",
-                        wait, attempt + 1, self._max_retries,
-                    )
-                    time.sleep(wait)
-                    continue
-                body_text = exc.read().decode("utf-8", errors="replace")
-                message = "Twitter API error %d: %s" % (exc.code, body_text[:500])
-                raise TwitterAPIError(exc.code, message)
-            except urllib.error.URLError as exc:
-                raise TwitterAPIError(0, "Twitter API network error: %s" % exc.reason)
-
-            try:
-                parsed = json.loads(payload)
-            except json.JSONDecodeError:
-                raise TwitterAPIError(0, "Twitter API returned invalid JSON")
-
-            if isinstance(parsed, dict) and parsed.get("errors"):
-                err_msg = parsed["errors"][0].get("message", "Unknown error")
-                raise TwitterAPIError(0, "Twitter API returned errors: %s" % err_msg)
-            return parsed
-
         raise TwitterAPIError(429, "Rate limited after %d retries" % self._max_retries)
 
     def _fetch_user_list(self, operation_name, user_id, count, get_instructions):
@@ -901,44 +859,12 @@ class TwitterClient:
                 actual_user = _deep_get(rt_core, "user_results", "result") or {}
                 actual_user_legacy = actual_user.get("legacy", {})
 
-        media = []  # type: List[TweetMedia]
-        for media_item in _deep_get(actual_legacy, "extended_entities", "media") or []:
-            media_type = media_item.get("type", "")
-            if media_type == "photo":
-                media.append(
-                    TweetMedia(
-                        type="photo",
-                        url=media_item.get("media_url_https", ""),
-                        width=_deep_get(media_item, "original_info", "width"),
-                        height=_deep_get(media_item, "original_info", "height"),
-                    )
-                )
-            elif media_type in {"video", "animated_gif"}:
-                variants = media_item.get("video_info", {}).get("variants", [])
-                mp4_variants = [item for item in variants if item.get("content_type") == "video/mp4"]
-                mp4_variants.sort(key=lambda item: item.get("bitrate", 0), reverse=True)
-                media.append(
-                    TweetMedia(
-                        type=media_type,
-                        url=mp4_variants[0]["url"] if mp4_variants else media_item.get("media_url_https", ""),
-                        width=_deep_get(media_item, "original_info", "width"),
-                        height=_deep_get(media_item, "original_info", "height"),
-                    )
-                )
-
+        media = _extract_media(actual_legacy)
         urls = [item.get("expanded_url", "") for item in _deep_get(actual_legacy, "entities", "urls") or []]
         quoted = _deep_get(actual_data, "quoted_status_result", "result")
         quoted_tweet = self._parse_tweet_result(quoted, depth=depth + 1) if isinstance(quoted, dict) else None
+        author = _extract_author(actual_user, actual_user_legacy)
 
-        actual_user_core = actual_user.get("core", {})
-        user_name = actual_user_core.get("name") or actual_user_legacy.get("name") or actual_user.get("name", "Unknown")
-        user_screen_name = (
-            actual_user_core.get("screen_name")
-            or actual_user_legacy.get("screen_name")
-            or actual_user.get("screen_name", "unknown")
-        )
-        user_profile_image = actual_user.get("avatar", {}).get("image_url") or actual_user_legacy.get("profile_image_url_https", "")
-        user_verified = bool(actual_user.get("is_blue_verified") or actual_user_legacy.get("verified", False))
         retweeted_by = None  # type: Optional[str]
         if is_retweet:
             retweeted_by = user_core.get("screen_name") or user_legacy.get("screen_name", "unknown")
@@ -946,13 +872,7 @@ class TwitterClient:
         return Tweet(
             id=actual_data.get("rest_id", ""),
             text=actual_legacy.get("full_text", ""),
-            author=Author(
-                id=actual_user.get("rest_id", ""),
-                name=user_name,
-                screen_name=user_screen_name,
-                profile_image_url=user_profile_image,
-                verified=user_verified,
-            ),
+            author=author,
             metrics=Metrics(
                 likes=_to_int(actual_legacy.get("favorite_count"), 0),
                 retweets=_to_int(actual_legacy.get("retweet_count"), 0),
@@ -969,6 +889,56 @@ class TwitterClient:
             quoted_tweet=quoted_tweet,
             lang=actual_legacy.get("lang", ""),
         )
+
+
+def _extract_media(legacy):
+    # type: (Dict[str, Any]) -> List[TweetMedia]
+    """Extract media items from tweet legacy data."""
+    media = []  # type: List[TweetMedia]
+    for media_item in _deep_get(legacy, "extended_entities", "media") or []:
+        media_type = media_item.get("type", "")
+        if media_type == "photo":
+            media.append(
+                TweetMedia(
+                    type="photo",
+                    url=media_item.get("media_url_https", ""),
+                    width=_deep_get(media_item, "original_info", "width"),
+                    height=_deep_get(media_item, "original_info", "height"),
+                )
+            )
+        elif media_type in {"video", "animated_gif"}:
+            variants = media_item.get("video_info", {}).get("variants", [])
+            mp4_variants = [v for v in variants if v.get("content_type") == "video/mp4"]
+            mp4_variants.sort(key=lambda v: v.get("bitrate", 0), reverse=True)
+            media.append(
+                TweetMedia(
+                    type=media_type,
+                    url=mp4_variants[0]["url"] if mp4_variants else media_item.get("media_url_https", ""),
+                    width=_deep_get(media_item, "original_info", "width"),
+                    height=_deep_get(media_item, "original_info", "height"),
+                )
+            )
+    return media
+
+
+def _extract_author(user_data, user_legacy):
+    # type: (Dict[str, Any], Dict[str, Any]) -> Author
+    """Extract Author from user result data."""
+    user_core = user_data.get("core", {})
+    return Author(
+        id=user_data.get("rest_id", ""),
+        name=user_core.get("name") or user_legacy.get("name") or user_data.get("name", "Unknown"),
+        screen_name=(
+            user_core.get("screen_name")
+            or user_legacy.get("screen_name")
+            or user_data.get("screen_name", "unknown")
+        ),
+        profile_image_url=(
+            user_data.get("avatar", {}).get("image_url")
+            or user_legacy.get("profile_image_url_https", "")
+        ),
+        verified=bool(user_data.get("is_blue_verified") or user_legacy.get("verified", False)),
+    )
 
 
 def _deep_get(data, *keys):
@@ -990,10 +960,10 @@ def _deep_get(data, *keys):
 
 def _extract_cursor(content):
     # type: (Dict[str, Any]) -> Optional[str]
-    """Extract pagination cursor from timeline content."""
+    """Extract Bottom pagination cursor from timeline content."""
     if content.get("cursorType") == "Bottom":
         return content.get("value")
-    if content.get("entryType") == "TimelineTimelineCursor":
+    if content.get("entryType") == "TimelineTimelineCursor" and content.get("cursorType") == "Bottom":
         return content.get("value")
     return None
 

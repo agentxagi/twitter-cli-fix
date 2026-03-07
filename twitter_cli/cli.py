@@ -1,16 +1,24 @@
 """CLI entry point for twitter-cli.
 
-Usage:
-    twitter feed                      # fetch home timeline (For You)
-    twitter feed -t following         # fetch following feed
-    twitter feed --max 50             # custom fetch count
-    twitter feed --filter             # enable score-based filtering
-    twitter feed --json               # JSON output
-    twitter favorite                  # fetch bookmarks
-    twitter feed --input tweets.json  # load existing data
-    twitter feed --output out.json    # save filtered tweets
-    twitter user elonmusk             # view user profile
-    twitter user-posts elonmusk       # list user tweets
+Read commands:
+    twitter feed                      # home timeline (For You)
+    twitter feed -t following         # following feed
+    twitter favorite                  # bookmarks
+    twitter search "query"            # search tweets
+    twitter user elonmusk             # user profile
+    twitter user-posts elonmusk       # user tweets
+    twitter likes elonmusk            # user likes
+    twitter tweet <id>                # tweet detail + replies
+    twitter list <id>                 # list timeline
+    twitter followers <handle>        # followers list
+    twitter following <handle>        # following list
+
+Write commands:
+    twitter post "text"               # post a tweet
+    twitter delete <id>               # delete a tweet
+    twitter like/unlike <id>          # like/unlike
+    twitter rt/unrt <id>              # retweet/unretweet
+    twitter bookmark-add/rm <id>      # bookmark management
 """
 
 from __future__ import annotations
@@ -35,7 +43,7 @@ from .formatter import (
     print_user_profile,
     print_user_table,
 )
-from .serialization import tweets_from_json, tweets_to_json
+from .serialization import tweets_from_json, tweets_to_json, users_to_json
 
 
 console = Console()
@@ -413,10 +421,7 @@ def followers(screen_name, max_count, as_json):
         sys.exit(1)
 
     if as_json:
-        import json
-        click.echo(json.dumps([{"id": u.id, "name": u.name, "screen_name": u.screen_name,
-                                "bio": u.bio, "followers": u.followers_count,
-                                "following": u.following_count} for u in users], indent=2, ensure_ascii=False))
+        click.echo(users_to_json(users))
         return
 
     print_user_table(users, console, title="👥 @%s followers — %d" % (screen_name, len(users)))
@@ -446,10 +451,7 @@ def following(screen_name, max_count, as_json):
         sys.exit(1)
 
     if as_json:
-        import json
-        click.echo(json.dumps([{"id": u.id, "name": u.name, "screen_name": u.screen_name,
-                                "bio": u.bio, "followers": u.followers_count,
-                                "following": u.following_count} for u in users], indent=2, ensure_ascii=False))
+        click.echo(users_to_json(users))
         return
 
     print_user_table(users, console, title="👥 @%s following — %d" % (screen_name, len(users)))
@@ -457,6 +459,20 @@ def following(screen_name, max_count, as_json):
 
 
 # ── Write commands ──────────────────────────────────────────────────────
+
+def _write_action(emoji, action_desc, client_method, tweet_id):
+    # type: (str, str, str, str) -> None
+    """Generic write action helper to reduce CLI command boilerplate."""
+    config = load_config()
+    try:
+        client = _get_client(config)
+        console.print("%s %s %s..." % (emoji, action_desc, tweet_id))
+        getattr(client, client_method)(tweet_id)
+        console.print("[green]✅ Done.[/green]")
+    except RuntimeError as exc:
+        console.print("[red]❌ %s[/red]" % exc)
+        sys.exit(1)
+
 
 @cli.command()
 @click.argument("text")
@@ -483,15 +499,7 @@ def post(text, reply_to):
 def delete_tweet(tweet_id):
     # type: (str,) -> None
     """Delete a tweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("🗑️  Deleting tweet %s..." % tweet_id)
-        client.delete_tweet(tweet_id)
-        console.print("[green]✅ Tweet deleted.[/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("🗑️", "Deleting tweet", "delete_tweet", tweet_id)
 
 
 @cli.command()
@@ -499,15 +507,7 @@ def delete_tweet(tweet_id):
 def like(tweet_id):
     # type: (str,) -> None
     """Like a tweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("❤️  Liking tweet %s..." % tweet_id)
-        client.like_tweet(tweet_id)
-        console.print("[green]✅ Liked![/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("❤️", "Liking tweet", "like_tweet", tweet_id)
 
 
 @cli.command()
@@ -515,15 +515,7 @@ def like(tweet_id):
 def unlike(tweet_id):
     # type: (str,) -> None
     """Unlike a tweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("💔 Unliking tweet %s..." % tweet_id)
-        client.unlike_tweet(tweet_id)
-        console.print("[green]✅ Unliked.[/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("💔", "Unliking tweet", "unlike_tweet", tweet_id)
 
 
 @cli.command()
@@ -531,15 +523,7 @@ def unlike(tweet_id):
 def rt(tweet_id):
     # type: (str,) -> None
     """Retweet a tweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("🔄 Retweeting %s..." % tweet_id)
-        client.retweet(tweet_id)
-        console.print("[green]✅ Retweeted![/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("🔄", "Retweeting", "retweet", tweet_id)
 
 
 @cli.command()
@@ -547,15 +531,7 @@ def rt(tweet_id):
 def unrt(tweet_id):
     # type: (str,) -> None
     """Undo a retweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("🔄 Undoing retweet %s..." % tweet_id)
-        client.unretweet(tweet_id)
-        console.print("[green]✅ Retweet undone.[/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("🔄", "Undoing retweet", "unretweet", tweet_id)
 
 
 @cli.command(name="bookmark-add")
@@ -563,15 +539,7 @@ def unrt(tweet_id):
 def bookmark_add(tweet_id):
     # type: (str,) -> None
     """Bookmark a tweet. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("🔖 Bookmarking tweet %s..." % tweet_id)
-        client.bookmark_tweet(tweet_id)
-        console.print("[green]✅ Bookmarked![/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id)
 
 
 @cli.command(name="bookmark-rm")
@@ -579,15 +547,7 @@ def bookmark_add(tweet_id):
 def bookmark_rm(tweet_id):
     # type: (str,) -> None
     """Remove a tweet from bookmarks. TWEET_ID is the numeric tweet ID."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        console.print("🔖 Removing bookmark %s..." % tweet_id)
-        client.unbookmark_tweet(tweet_id)
-        console.print("[green]✅ Bookmark removed.[/green]")
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
 
 
 if __name__ == "__main__":
