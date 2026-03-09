@@ -53,7 +53,7 @@ TWITTER_OPENAPI_URL = (
     "main/src/config/placeholder.json"
 )
 
-FEATURES = {
+_DEFAULT_FEATURES = {
     "rweb_video_screen_enabled": False,
     "profile_label_improvements_pcf_label_in_post_enabled": True,
     "responsive_web_profile_redirect_enabled": False,
@@ -92,6 +92,9 @@ FEATURES = {
     "responsive_web_grok_community_note_auto_translation_is_enabled": False,
     "responsive_web_enhance_cards_enabled": False,
 }
+
+# Features dict that gets updated dynamically from x.com JS bundles
+FEATURES = dict(_DEFAULT_FEATURES)
 
 # Module-level caches (not thread-safe — CLI is single-threaded)
 _cached_query_ids = {}  # type: Dict[str, str]
@@ -209,6 +212,35 @@ def _scan_bundles():
             continue
 
     logger.info("Scanned %d JS bundles, cached %d query IDs", len(script_urls), len(_cached_query_ids))
+
+
+def _update_features_from_html(html):
+    # type: (str) -> None
+    """Extract live feature flags from x.com HTML and update the global FEATURES dict.
+
+    Twitter embeds feature switch config in inline scripts on the homepage.
+    We parse these to keep FEATURES in sync with the current frontend.
+    """
+    try:
+        # Look for feature flags in inline script content
+        # Pattern: "featureSwitch":{"...":{"value":true/false},...}
+        # Also try: features:{key:!0, key2:!1, ...} in JS bundles
+        feature_pattern = re.compile(
+            r'"([a-z][a-z0-9_]+)":\s*\{\s*"value"\s*:\s*(true|false)',
+            re.IGNORECASE,
+        )
+        found = 0
+        for match in feature_pattern.finditer(html):
+            key = match.group(1)
+            value = match.group(2).lower() == "true"
+            # Only update keys that look like feature flags
+            if any(prefix in key for prefix in ("responsive_web_", "rweb_", "longform_", "creator_", "communities_", "c9s_")):
+                FEATURES[key] = value
+                found += 1
+        if found:
+            logger.info("Updated %d feature flags from x.com", found)
+    except Exception as exc:
+        logger.debug("Feature extraction from HTML failed: %s", exc)
 
 
 def _fetch_from_github(operation_name):
@@ -468,6 +500,13 @@ class TwitterClient:
 
     # ── Write operations ────────────────────────────────────────────────
 
+    def _write_delay(self):
+        # type: () -> None
+        """Sleep a random interval after write operations to avoid rate limits."""
+        delay = random.uniform(1.5, 4.0)
+        logger.debug("Write operation delay: %.1fs", delay)
+        time.sleep(delay)
+
     def create_tweet(self, text, reply_to_id=None):
         # type: (str, Optional[str]) -> str
         """Post a new tweet.  Returns the new tweet ID."""
@@ -483,6 +522,7 @@ class TwitterClient:
                 "exclude_reply_user_ids": [],
             }
         data = self._graphql_post("CreateTweet", variables, FEATURES)
+        self._write_delay()
         result = _deep_get(data, "data", "create_tweet", "tweet_results", "result")
         if result:
             return result.get("rest_id", "")
@@ -493,42 +533,49 @@ class TwitterClient:
         """Delete a tweet.  Returns True on success."""
         variables = {"tweet_id": tweet_id, "dark_request": False}
         self._graphql_post("DeleteTweet", variables)
+        self._write_delay()
         return True
 
     def like_tweet(self, tweet_id):
         # type: (str) -> bool
         """Like a tweet.  Returns True on success."""
         self._graphql_post("FavoriteTweet", {"tweet_id": tweet_id})
+        self._write_delay()
         return True
 
     def unlike_tweet(self, tweet_id):
         # type: (str) -> bool
         """Unlike a tweet.  Returns True on success."""
         self._graphql_post("UnfavoriteTweet", {"tweet_id": tweet_id, "dark_request": False})
+        self._write_delay()
         return True
 
     def retweet(self, tweet_id):
         # type: (str) -> bool
         """Retweet a tweet.  Returns True on success."""
         self._graphql_post("CreateRetweet", {"tweet_id": tweet_id, "dark_request": False})
+        self._write_delay()
         return True
 
     def unretweet(self, tweet_id):
         # type: (str) -> bool
         """Undo a retweet.  Returns True on success."""
         self._graphql_post("DeleteRetweet", {"source_tweet_id": tweet_id, "dark_request": False})
+        self._write_delay()
         return True
 
     def bookmark_tweet(self, tweet_id):
         # type: (str) -> bool
         """Bookmark a tweet.  Returns True on success."""
         self._graphql_post("CreateBookmark", {"tweet_id": tweet_id})
+        self._write_delay()
         return True
 
     def unbookmark_tweet(self, tweet_id):
         # type: (str) -> bool
         """Remove a tweet from bookmarks.  Returns True on success."""
         self._graphql_post("DeleteBookmark", {"tweet_id": tweet_id})
+        self._write_delay()
         return True
 
     def _fetch_timeline(self, operation_name, count, get_instructions, extra_variables=None, override_base_variables=False, field_toggles=None):
@@ -609,7 +656,10 @@ class TwitterClient:
 
     def _ensure_client_transaction(self):
         # type: () -> None
-        """Initialize ClientTransaction for x-client-transaction-id header."""
+        """Initialize ClientTransaction for x-client-transaction-id header.
+
+        Also attempts to extract live feature flags from JS bundles.
+        """
         if self._ct_init_attempted:
             return
         self._ct_init_attempted = True
@@ -632,6 +682,9 @@ class TwitterClient:
                 ondemand_file_response=ondemand_file.text,
             )
             logger.info("ClientTransaction initialized for x-client-transaction-id")
+
+            # Try to extract live FEATURES from the homepage JS bundles
+            _update_features_from_html(home_page.text)
         except Exception as exc:
             logger.warning("Failed to init ClientTransaction: %s", exc)
 

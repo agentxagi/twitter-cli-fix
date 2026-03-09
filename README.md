@@ -139,7 +139,7 @@ export TWITTER_PROXY=http://127.0.0.1:7890
 export TWITTER_PROXY=socks5://127.0.0.1:1080
 ```
 
-Using a proxy is **strongly recommended** to avoid IP-based rate limiting.
+Using a proxy can help reduce IP-based rate limiting risks.
 
 ### Configuration
 
@@ -361,7 +361,7 @@ export TWITTER_PROXY=http://127.0.0.1:7890
 export TWITTER_PROXY=socks5://127.0.0.1:1080
 ```
 
-**强烈建议使用代理**，避免 IP 维度的风控。
+使用代理可以降低 IP 维度的风控风险。
 
 ### 筛选算法
 
