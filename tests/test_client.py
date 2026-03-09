@@ -213,30 +213,28 @@ class TestBestChromeTarget:
 # ── _update_features_from_html ───────────────────────────────────────────
 
 class TestUpdateFeaturesFromHtml:
-    def test_extracts_feature_flags(self):
-        # Save original state
+    def test_updates_existing_feature_flags(self):
+        """Should update existing FEATURES keys, not add new ones."""
         original = dict(FEATURES)
         try:
-            html = '''
-            "responsive_web_test_feature":{"value":true},
-            "responsive_web_another_feature":{"value":false},
-            "rweb_some_flag":{"value":true}
-            '''
+            # Use a key that exists in FEATURES
+            existing_key = list(FEATURES.keys())[0]
+            original_value = FEATURES[existing_key]
+            opposite = "false" if original_value else "true"
+            html = '"%s":{"value":%s}' % (existing_key, opposite)
             _update_features_from_html(html)
-            assert FEATURES["responsive_web_test_feature"] is True
-            assert FEATURES["responsive_web_another_feature"] is False
-            assert FEATURES["rweb_some_flag"] is True
+            assert FEATURES[existing_key] != original_value
         finally:
-            # Restore original state
             FEATURES.clear()
             FEATURES.update(original)
 
-    def test_ignores_non_feature_keys(self):
+    def test_does_not_add_new_keys(self):
+        """Should never add keys not already in FEATURES (prevents URL bloat)."""
         original = dict(FEATURES)
         try:
-            html = '"some_random_key":{"value":true}'
+            html = '"responsive_web_brand_new_feature":{"value":true}'
             _update_features_from_html(html)
-            assert "some_random_key" not in FEATURES
+            assert "responsive_web_brand_new_feature" not in FEATURES
         finally:
             FEATURES.clear()
             FEATURES.update(original)
