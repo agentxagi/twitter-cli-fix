@@ -486,7 +486,7 @@ def unlike(tweet_id):
 
 @cli.command()
 @click.argument("tweet_id")
-def rt(tweet_id):
+def retweet(tweet_id):
     # type: (str,) -> None
     """Retweet a tweet. TWEET_ID is the numeric tweet ID."""
     _write_action("🔄", "Retweeting", "retweet", tweet_id)
@@ -494,7 +494,7 @@ def rt(tweet_id):
 
 @cli.command()
 @click.argument("tweet_id")
-def unrt(tweet_id):
+def unretweet(tweet_id):
     # type: (str,) -> None
     """Undo a retweet. TWEET_ID is the numeric tweet ID."""
     _write_action("🔄", "Undoing retweet", "unretweet", tweet_id)

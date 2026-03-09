@@ -37,9 +37,10 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 **Auth & Anti-Detection:**
 - Cookie auth: use browser cookies or environment variables
 - Full cookie forwarding: extracts ALL browser cookies for true browser fingerprint
-- TLS fingerprint impersonation: `curl_cffi` with Chrome 133 JA3/HTTP2
+- TLS fingerprint impersonation: `curl_cffi` with dynamic Chrome version matching
 - `x-client-transaction-id` header generation
 - Request timing jitter to avoid pattern detection
+- Write operation delays (1.5–4s random) to mitigate rate limits
 - Proxy support via `TWITTER_PROXY` environment variable
 
 ### Installation
@@ -89,6 +90,8 @@ twitter favorites --max 30 --json
 twitter search "Claude Code"
 twitter search "AI agent" -t Latest --max 50
 twitter search "机器学习" --json
+twitter search "topic" -o results.json         # Save to file
+twitter search "trending" --filter              # Apply ranking filter
 
 # Tweet detail (view tweet + replies)
 twitter tweet 1234567890
@@ -100,7 +103,9 @@ twitter list 1539453138322673664
 # User
 twitter user elonmusk
 twitter user-posts elonmusk --max 20
+twitter user-posts elonmusk -o tweets.json
 twitter likes elonmusk --max 30
+twitter likes elonmusk -o likes.json
 twitter followers elonmusk --max 50
 twitter following elonmusk --max 50
 
@@ -290,9 +295,10 @@ After installation, OpenClaw can call `twitter-cli` commands directly.
 **认证与反风控:**
 - Cookie 认证：支持环境变量和浏览器自动提取
 - 完整 Cookie 转发：提取浏览器中所有 Twitter Cookie
-- TLS 指纹伪装：`curl_cffi` Chrome 133 JA3/HTTP2
+- TLS 指纹伪装：`curl_cffi` 动态匹配 Chrome 版本
 - `x-client-transaction-id` 请求头生成
 - 请求时序随机化（jitter）
+- 写操作随机延迟（1.5–4 秒），降低频率风控
 - 代理支持：`TWITTER_PROXY` 环境变量
 
 ### 安装
@@ -316,6 +322,8 @@ twitter favorites
 # 搜索
 twitter search "Claude Code"
 twitter search "AI agent" -t Latest --max 50
+twitter search "topic" -o results.json         # 保存到文件
+twitter search "trending" --filter              # 启用排序筛选
 
 # 推文详情
 twitter tweet 1234567890
@@ -326,7 +334,9 @@ twitter list 1539453138322673664
 # 用户
 twitter user elonmusk
 twitter user-posts elonmusk --max 20
+twitter user-posts elonmusk -o tweets.json
 twitter likes elonmusk --max 30
+twitter likes elonmusk -o likes.json
 twitter followers elonmusk
 twitter following elonmusk
 

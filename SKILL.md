@@ -18,7 +18,7 @@ Use this skill when the user wants to read or interact with Twitter/X content fr
 ## Prerequisites
 
 ```bash
-# Install (requires Python 3.10+)
+# Install (requires Python 3.8+)
 uv tool install twitter-cli
 # Or: pipx install twitter-cli
 ```
@@ -55,6 +55,8 @@ twitter favorites --filter             # Apply ranking filter
 twitter search "keyword"
 twitter search "AI agent" -t Latest --max 50
 twitter search "机器学习" --json
+twitter search "topic" -o results.json         # Save to file
+twitter search "trending" --filter              # Apply ranking filter
 ```
 
 ### Tweet Detail
@@ -75,7 +77,9 @@ twitter list 1539453138322673664       # Fetch tweets from a Twitter List
 ```bash
 twitter user elonmusk                  # User profile
 twitter user-posts elonmusk --max 20   # User's tweets
+twitter user-posts elonmusk -o tweets.json  # Save to file
 twitter likes elonmusk --max 30        # User's likes
+twitter likes elonmusk -o likes.json   # Save to file
 twitter followers elonmusk --max 50    # User's followers
 twitter following elonmusk --max 50    # User's following
 ```
@@ -101,6 +105,8 @@ twitter feed --json > tweets.json
 twitter feed --input tweets.json
 twitter user-posts elonmusk --json | jq '.[0].text'
 twitter search "keyword" --json | jq 'length'
+twitter search "topic" -o results.json
+twitter likes elonmusk -o likes.json
 ```
 
 ## Ranking Filter
@@ -149,6 +155,8 @@ twitter favorites --filter
 
 ## Safety Notes
 
+- Write operations have built-in random delays (1.5–4s) to avoid rate limits.
+- TLS fingerprint and User-Agent are automatically matched to the Chrome version used.
 - Do not ask users to share raw cookie values in chat logs.
 - Prefer local browser cookie extraction over manual secret copy/paste.
 - If auth fails with 401/403, ask the user to re-login to `x.com`.
