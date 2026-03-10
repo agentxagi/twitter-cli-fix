@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 import math
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from .config import _as_float, _as_int
+from .models import Tweet
 
 DEFAULT_WEIGHTS = {
     "likes": 1.0,
@@ -20,8 +22,7 @@ DEFAULT_WEIGHTS = {
 }
 
 
-def score_tweet(tweet, weights=None):
-    # type: (Tweet, Optional[Dict[str, float]]) -> float
+def score_tweet(tweet: Tweet, weights: Optional[Dict[str, float]] = None) -> float:
     """Calculate engagement score for a single tweet.
 
     Formula:
@@ -45,8 +46,7 @@ def score_tweet(tweet, weights=None):
     )
 
 
-def filter_tweets(tweets, config):
-    # type: (Sequence[Tweet], Mapping[str, Any]) -> List[Tweet]
+def filter_tweets(tweets: Sequence[Tweet], config: Mapping[str, Any]) -> List[Tweet]:
     """Filter and rank tweets according to config.
 
     Config keys:
@@ -74,7 +74,7 @@ def filter_tweets(tweets, config):
     scored = [replace(tweet, score=round(score_tweet(tweet, weights), 1)) for tweet in filtered]
 
     # 4. Sort by score (descending)
-    scored.sort(key=lambda tweet: tweet.score, reverse=True)
+    scored.sort(key=lambda tweet: tweet.score or 0.0, reverse=True)
 
     # 5. Apply filter mode
     mode = str(config.get("mode", "topN"))
@@ -83,12 +83,11 @@ def filter_tweets(tweets, config):
         return scored[:top_n]
     if mode == "score":
         min_score = _as_float(config.get("minScore"), 50.0)
-        return [tweet for tweet in scored if tweet.score >= min_score]
+        return [tweet for tweet in scored if (tweet.score or 0.0) >= min_score]
     return scored
 
 
-def _build_weights(raw_weights):
-    # type: (Mapping[str, Any]) -> Dict[str, float]
+def _build_weights(raw_weights: Mapping[str, Any]) -> Dict[str, float]:
     """Merge custom weights with defaults and coerce to float."""
     merged = {}
     for key, default_value in DEFAULT_WEIGHTS.items():

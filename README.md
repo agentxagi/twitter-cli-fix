@@ -38,6 +38,7 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 - Like / Unlike: manage tweet likes
 - Retweet / Unretweet: manage retweets
 - Bookmark: bookmark/unbookmark (`favorite/unfavorite` kept as compatibility aliases)
+- Write commands also support explicit `--json` / `--yaml` output now
 
 **Auth & Anti-Detection:**
 - Cookie auth: use browser cookies or environment variables
@@ -117,13 +118,16 @@ twitter following elonmusk --max 50
 # Write operations
 twitter post "Hello from twitter-cli!"
 twitter post "reply text" --reply-to 1234567890
+twitter post "Hello from twitter-cli!" --json
 twitter delete 1234567890
 twitter like 1234567890
+twitter like 1234567890 --yaml
 twitter unlike 1234567890
 twitter retweet 1234567890
 twitter unretweet 1234567890
 twitter bookmark 1234567890
 twitter unbookmark 1234567890
+twitter follow elonmusk --json
 ```
 
 ### Authentication
@@ -229,6 +233,8 @@ Mode behavior:
 - `Invalid tweet JSON file`
   - Regenerate input using `twitter feed --json > tweets.json`.
 
+Structured error codes commonly include `not_authenticated`, `not_found`, `invalid_input`, `rate_limited`, and `api_error`.
+
 ### Development
 
 ```bash
@@ -240,7 +246,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current CI validates the project on Python 3.12.
+Current CI validates the project on Python 3.8, 3.10, and 3.12.
 
 ### Project Structure
 
@@ -305,6 +311,7 @@ After installation, OpenClaw can call `twitter-cli` commands directly.
 - 点赞 / 取消点赞
 - 转推 / 取消转推
 - 书签 / 取消书签：bookmark/unbookmark（保留 `favorite/unfavorite` 兼容别名）
+- 写操作现在也显式支持 `--json` / `--yaml`
 
 **认证与反风控:**
 - Cookie 认证：支持环境变量和浏览器自动提取
@@ -357,13 +364,16 @@ twitter following elonmusk
 # 写操作
 twitter post "你好，世界！"
 twitter post "回复内容" --reply-to 1234567890
+twitter post "你好，世界！" --json
 twitter delete 1234567890
 twitter like 1234567890
+twitter like 1234567890 --yaml
 twitter unlike 1234567890
 twitter retweet 1234567890
 twitter unretweet 1234567890
 twitter bookmark 1234567890
 twitter unbookmark 1234567890
+twitter follow elonmusk --json
 ```
 
 ### 认证说明
@@ -415,6 +425,7 @@ score = likes_w * likes
 - 如需查看浏览器提取细节，可加 `-v` 打开诊断日志。
 - 报错 `Cookie expired or invalid`：Cookie 过期，重新登录后重试。
 - 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
+- 结构化错误码通常会区分 `not_authenticated`、`not_found`、`invalid_input`、`rate_limited`、`api_error`。
 
 ### 使用建议（防封号）
 

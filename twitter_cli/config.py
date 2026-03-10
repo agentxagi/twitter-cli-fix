@@ -5,13 +5,14 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
+from typing import Any, Dict, Mapping, Optional
 
 import yaml
 
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
     "fetch": {
         "count": 50,
     },
@@ -35,11 +36,10 @@ DEFAULT_CONFIG = {
         "retryBaseDelay": 5.0,
         "maxCount": 200,
     },
-}  # type: Dict[str, Any]
+}
 
 
-def load_config(config_path=None):
-    # type: (Optional[str]) -> Dict[str, Any]
+def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     """Load and normalize config from YAML, merged with defaults."""
     config = copy.deepcopy(DEFAULT_CONFIG)
     path = _resolve_config_path(config_path)
@@ -66,8 +66,7 @@ def load_config(config_path=None):
     return _normalize_config(merged)
 
 
-def _resolve_config_path(config_path):
-    # type: (Optional[str]) -> Optional[Path]
+def _resolve_config_path(config_path: Optional[str]) -> Optional[Path]:
     """Find config path from explicit argument or default locations."""
     if config_path:
         path = Path(config_path)
@@ -83,8 +82,7 @@ def _resolve_config_path(config_path):
     return None
 
 
-def _deep_merge(target, source):
-    # type: (Dict[str, Any], Mapping[str, Any]) -> Dict[str, Any]
+def _deep_merge(target: Dict[str, Any], source: Mapping[str, Any]) -> Dict[str, Any]:
     """Deep merge source into target (source values override target)."""
     result = copy.deepcopy(target)
     for key, value in source.items():
@@ -95,8 +93,7 @@ def _deep_merge(target, source):
     return result
 
 
-def _normalize_config(config):
-    # type: (Dict[str, Any]) -> Dict[str, Any]
+def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize shape and value types."""
     normalized = copy.deepcopy(DEFAULT_CONFIG)
     merged = _deep_merge(normalized, config)
@@ -148,8 +145,7 @@ def _normalize_config(config):
     return merged
 
 
-def _as_int(value, default):
-    # type: (Any, int) -> int
+def _as_int(value: Any, default: int) -> int:
     """Best-effort int conversion."""
     try:
         return int(value)
@@ -157,8 +153,7 @@ def _as_int(value, default):
         return default
 
 
-def _as_float(value, default):
-    # type: (Any, float) -> float
+def _as_float(value: Any, default: float) -> float:
     """Best-effort float conversion."""
     try:
         return float(value)

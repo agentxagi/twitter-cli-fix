@@ -15,7 +15,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from .constants import BEARER_TOKEN, get_user_agent
 
@@ -25,8 +25,7 @@ logger = logging.getLogger(__name__)
 _TWITTER_DOMAINS = {"x.com", "twitter.com", ".x.com", ".twitter.com"}
 
 
-def _is_twitter_domain(domain):
-    # type: (str) -> bool
+def _is_twitter_domain(domain: str) -> bool:
     return domain in _TWITTER_DOMAINS or domain.endswith(".x.com") or domain.endswith(".twitter.com")
 
 
@@ -45,8 +44,7 @@ def load_from_env() -> Optional[Dict[str, str]]:
     return None
 
 
-def verify_cookies(auth_token, ct0, cookie_string=None):
-    # type: (str, str, Optional[str]) -> Dict[str, Any]
+def verify_cookies(auth_token: str, ct0: str, cookie_string: Optional[str] = None) -> Dict[str, Any]:
     """Verify cookies by calling a Twitter API endpoint.
 
     Uses curl_cffi for proper TLS fingerprint.
@@ -112,11 +110,10 @@ def verify_cookies(auth_token, ct0, cookie_string=None):
     return {}
 
 
-def _extract_cookies_from_jar(jar, source="unknown"):
-    # type: (Any, str) -> Optional[Dict[str, str]]
+def _extract_cookies_from_jar(jar: Any, source: str = "unknown") -> Optional[Dict[str, str]]:
     """Extract Twitter cookies from a cookie jar."""
-    result = {}  # type: Dict[str, str]
-    all_cookies = {}  # type: Dict[str, str]
+    result: Dict[str, str] = {}
+    all_cookies: Dict[str, str] = {}
     twitter_cookie_count = 0
     for cookie in jar:
         domain = cookie.domain or ""
@@ -144,8 +141,7 @@ def _extract_cookies_from_jar(jar, source="unknown"):
     return None
 
 
-def _extract_in_process():
-    # type: () -> Optional[Dict[str, str]]
+def _extract_in_process() -> Optional[Dict[str, str]]:
     """Extract cookies in the main process (required on macOS for Keychain access).
 
     On macOS, Chrome encrypts cookies using a key stored in the system Keychain.
@@ -184,8 +180,7 @@ def _extract_in_process():
     return None
 
 
-def _extract_via_subprocess():
-    # type: () -> Optional[Dict[str, str]]
+def _extract_via_subprocess() -> Optional[Dict[str, str]]:
     """Extract cookies via subprocess (fallback if in-process fails, e.g. SQLite lock)."""
     extract_script = '''
 import json, sys
@@ -237,8 +232,11 @@ print(json.dumps({
 sys.exit(1)
 '''
 
-    def _run_extract_command(cmd, timeout, label):
-        # type: (list[str], int, str) -> tuple[Optional[dict], bool]
+    def _run_extract_command(
+        cmd: list[str],
+        timeout: int,
+        label: str,
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
         try:
             result = subprocess.run(
                 cmd,
@@ -294,7 +292,7 @@ sys.exit(1)
         logger.info("Found cookies in %s (subprocess)", data.get("browser", "unknown"))
 
         # Build full cookie string from all extracted cookies
-        cookies = {"auth_token": data["auth_token"], "ct0": data["ct0"]}
+        cookies: Dict[str, str] = {"auth_token": data["auth_token"], "ct0": data["ct0"]}
         all_cookies = data.get("all_cookies", {})
         if all_cookies:
             cookie_str = "; ".join("%s=%s" % (k, v) for k, v in all_cookies.items())
@@ -331,7 +329,7 @@ def get_cookies() -> Dict[str, str]:
 
     Raises RuntimeError if no cookies found.
     """
-    cookies = None  # type: Optional[Dict[str, str]]
+    cookies: Optional[Dict[str, str]] = None
 
     # 1. Try environment variables
     cookies = load_from_env()

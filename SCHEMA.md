@@ -27,3 +27,14 @@ error:
 - tweet and user lists are returned under `data`
 - `status` returns `data.authenticated` plus `data.user`
 - `whoami` returns `data.user`
+- write commands also support explicit `--json` / `--yaml`
+
+## Error Codes
+
+Common structured error codes:
+
+- `not_authenticated`
+- `not_found`
+- `invalid_input`
+- `rate_limited`
+- `api_error`

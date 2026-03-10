@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from typing import List, Optional
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from .models import Tweet, UserProfile
 
-def format_number(n):
-    # type: (int) -> str
+
+def format_number(n: int) -> str:
     """Format number with K/M suffixes."""
     if n >= 1_000_000:
         return "%.1fM" % (n / 1_000_000)
@@ -18,8 +20,11 @@ def format_number(n):
     return str(n)
 
 
-def print_tweet_table(tweets, console=None, title=None):
-    # type: (List[Tweet], Optional[Console], Optional[str]) -> None
+def print_tweet_table(
+    tweets: List[Tweet],
+    console: Optional[Console] = None,
+    title: Optional[str] = None,
+) -> None:
     """Print tweets as a rich table."""
     if console is None:
         console = Console()
@@ -86,8 +91,7 @@ def print_tweet_table(tweets, console=None, title=None):
     console.print(table)
 
 
-def print_tweet_detail(tweet, console=None):
-    # type: (Tweet, Optional[Console]) -> None
+def print_tweet_detail(tweet: Tweet, console: Optional[Console] = None) -> None:
     """Print a single tweet in detail using a rich panel."""
     if console is None:
         console = Console()
@@ -143,8 +147,11 @@ def print_tweet_detail(tweet, console=None):
     ))
 
 
-def print_filter_stats(original_count, filtered, console=None):
-    # type: (int, List[Tweet], Optional[Console]) -> None
+def print_filter_stats(
+    original_count: int,
+    filtered: List[Tweet],
+    console: Optional[Console] = None,
+) -> None:
     """Print filter statistics."""
     if console is None:
         console = Console()
@@ -153,14 +160,14 @@ def print_filter_stats(original_count, filtered, console=None):
         "📊 Filter: %d → %d tweets" % (original_count, len(filtered))
     )
     if filtered:
-        top_score = filtered[0].score
-        bottom_score = filtered[-1].score
+        top_score = filtered[0].score or 0.0
+        bottom_score = filtered[-1].score or 0.0
         console.print(
             "   Score range: %.1f ~ %.1f" % (bottom_score, top_score)
         )
 
-def print_user_profile(user, console=None):
-    # type: (UserProfile, Optional[Console]) -> None
+
+def print_user_profile(user: UserProfile, console: Optional[Console] = None) -> None:
     """Print user profile as a rich panel."""
     if console is None:
         console = Console()
@@ -202,8 +209,11 @@ def print_user_profile(user, console=None):
     ))
 
 
-def print_user_table(users, console=None, title=None):
-    # type: (List[UserProfile], Optional[Console], Optional[str]) -> None
+def print_user_table(
+    users: List[UserProfile],
+    console: Optional[Console] = None,
+    title: Optional[str] = None,
+) -> None:
     """Print a list of users as a rich table."""
     if console is None:
         console = Console()

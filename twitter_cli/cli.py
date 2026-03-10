@@ -33,6 +33,7 @@ import sys
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 import click
 from rich.console import Console
@@ -49,7 +50,7 @@ from .formatter import (
     print_user_profile,
     print_user_table,
 )
-from .models import UserProfile
+from .models import Tweet, UserProfile
 from .output import (
     default_structured_format,
     emit_error,
@@ -68,6 +69,13 @@ from .serialization import (
     users_to_data,
 )
 
+ConfigDict = Dict[str, Any]
+TweetList = List[Tweet]
+FetchTweets = Callable[[int], TweetList]
+OptionalPath = Optional[str]
+StructuredMode = Optional[str]
+WritePayload = Dict[str, Any]
+WriteOperation = Callable[[TwitterClient], WritePayload]
 
 console = Console(stderr=True)
 FEED_TYPES = ["for-you", "following"]
@@ -145,7 +153,7 @@ def _get_client_for_output(config=None, quiet=False):
 
 def _exit_with_error(exc):
     # type: (RuntimeError) -> None
-    if emit_error("api_error", str(exc)):
+    if emit_error(_error_code_for_message(str(exc)), str(exc)):
         sys.exit(1)
     console.print("[red]❌ %s[/red]" % exc)
     sys.exit(1)
@@ -157,6 +165,20 @@ def _run_guarded(action):
         return action()
     except RuntimeError as exc:
         _exit_with_error(exc)
+
+
+def _error_code_for_message(message):
+    # type: (str) -> str
+    lowered = message.lower()
+    if "cookie expired" in lowered or "no twitter cookies found" in lowered or "invalid cookie" in lowered:
+        return "not_authenticated"
+    if "rate limited" in lowered or "http 429" in lowered:
+        return "rate_limited"
+    if "invalid tweet" in lowered or "required" in lowered or "--max must" in lowered:
+        return "invalid_input"
+    if "not found" in lowered:
+        return "not_found"
+    return "api_error"
 
 
 def _resolve_fetch_count(max_count, configured):
@@ -210,6 +232,63 @@ def _apply_filter(tweets, do_filter, config, rich_output=True):
         print_filter_stats(original_count, filtered, console)
         console.print()
     return filtered
+
+
+def _structured_mode(as_json: bool, as_yaml: bool) -> StructuredMode:
+    return default_structured_format(as_json=as_json, as_yaml=as_yaml)
+
+
+def _emit_mode_payload(payload: object, mode: StructuredMode) -> bool:
+    if not mode:
+        return False
+    emit_structured(payload, as_json=(mode == "json"), as_yaml=(mode == "yaml"))
+    return True
+
+
+def _print_lines(lines: List[str], mode: StructuredMode) -> None:
+    if mode:
+        return
+    for line in lines:
+        console.print(line)
+
+
+def _handle_structured_runtime_error(
+    exc: RuntimeError,
+    *,
+    mode: StructuredMode,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    if _emit_mode_payload(
+        error_payload(_error_code_for_message(str(exc)), str(exc), details=details),
+        mode,
+    ):
+        raise SystemExit(1) from None
+    _exit_with_error(exc)
+
+
+def _run_write_command(
+    *,
+    as_json: bool,
+    as_yaml: bool,
+    operation: WriteOperation,
+    progress_lines: Optional[List[str]] = None,
+    success_lines: Optional[List[str]] = None,
+    error_details: Optional[Dict[str, Any]] = None,
+) -> Optional[WritePayload]:
+    mode = _structured_mode(as_json=as_json, as_yaml=as_yaml)
+    try:
+        client = _get_client(load_config())
+        _print_lines(progress_lines or [], mode)
+        payload = operation(client)
+    except RuntimeError as exc:
+        _handle_structured_runtime_error(exc, mode=mode, details=error_details)
+        return None
+
+    if _emit_mode_payload(payload, mode):
+        return payload
+
+    _print_lines(success_lines or ["[green]✅ Done.[/green]"], mode)
+    return payload
 
 
 @click.group()
@@ -606,103 +685,111 @@ def following(screen_name, max_count, as_json, as_yaml):
 
 # ── Write commands ──────────────────────────────────────────────────────
 
-def _write_action(emoji, action_desc, client_method, tweet_id):
-    # type: (str, str, str, str) -> None
+def _write_action(emoji, action_desc, client_method, tweet_id, as_json=False, as_yaml=False):
+    # type: (str, str, str, str, bool, bool) -> None
     """Generic write action helper to reduce CLI command boilerplate.
 
     Emits structured JSON/YAML when piped or when OUTPUT env is set.
     """
-    try:
-        config = load_config()
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            console.print("%s %s %s..." % (emoji, action_desc, tweet_id))
+    action_name = action_desc.lower().replace(" ", "_")
+
+    def operation(client: TwitterClient) -> WritePayload:
         getattr(client, client_method)(tweet_id)
-        result = {"success": True, "action": action_desc.lower().replace(" ", "_"), "id": tweet_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Done.[/green]")
-    except RuntimeError as exc:
-        result = {"success": False, "action": action_desc.lower().replace(" ", "_"), "id": tweet_id, "error": str(exc)}
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-            sys.exit(1)
-        _exit_with_error(exc)
+        return {"success": True, "action": action_name, "id": tweet_id}
+
+    _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["%s %s %s..." % (emoji, action_desc, tweet_id)],
+        success_lines=["[green]✅ Done.[/green]"],
+        error_details={"action": action_name, "id": tweet_id},
+    )
 
 
 @cli.command()
 @click.argument("text")
 @click.option("--reply-to", "-r", default=None, help="Reply to this tweet ID.")
-def post(text, reply_to):
-    # type: (str, Optional[str]) -> None
+@structured_output_options
+def post(text, reply_to, as_json, as_yaml):
+    # type: (str, Optional[str], bool, bool) -> None
     """Post a new tweet. TEXT is the tweet content."""
-    config = load_config()
-    try:
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            action = "Replying to %s" % reply_to if reply_to else "Posting tweet"
-            console.print("✏️  %s..." % action)
+    action = "Replying to %s" % reply_to if reply_to else "Posting tweet"
+
+    def operation(client: TwitterClient) -> WritePayload:
         tweet_id = client.create_tweet(text, reply_to_id=reply_to)
-        result = {"success": True, "action": "post", "id": tweet_id, "url": "https://x.com/i/status/%s" % tweet_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Tweet posted![/green]")
-            console.print("🔗 https://x.com/i/status/%s" % tweet_id)
-    except RuntimeError as exc:
-        _exit_with_error(exc)
+        return {"success": True, "action": "post", "id": tweet_id, "url": "https://x.com/i/status/%s" % tweet_id}
+
+    payload = _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["✏️  %s..." % action],
+        success_lines=["[green]✅ Tweet posted![/green]"],
+        error_details={"action": "post", "replyTo": reply_to},
+    )
+    if payload and not _structured_mode(as_json=as_json, as_yaml=as_yaml):
+        console.print("🔗 %s" % payload["url"])
 
 
 @cli.command(name="reply")
 @click.argument("tweet_id")
 @click.argument("text")
-def reply_tweet(tweet_id, text):
-    # type: (str, str) -> None
+@structured_output_options
+def reply_tweet(tweet_id, text, as_json, as_yaml):
+    # type: (str, str, bool, bool) -> None
     """Reply to a tweet. TWEET_ID is the tweet to reply to, TEXT is the reply content."""
     tweet_id = _normalize_tweet_id(tweet_id)
-    config = load_config()
-    try:
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            console.print("💬 Replying to %s..." % tweet_id)
+    def operation(client: TwitterClient) -> WritePayload:
         new_id = client.create_tweet(text, reply_to_id=tweet_id)
-        result = {"success": True, "action": "reply", "id": new_id, "replyTo": tweet_id, "url": "https://x.com/i/status/%s" % new_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Reply posted![/green]")
-            console.print("🔗 https://x.com/i/status/%s" % new_id)
-    except RuntimeError as exc:
-        _exit_with_error(exc)
+        return {
+            "success": True,
+            "action": "reply",
+            "id": new_id,
+            "replyTo": tweet_id,
+            "url": "https://x.com/i/status/%s" % new_id,
+        }
+
+    payload = _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["💬 Replying to %s..." % tweet_id],
+        success_lines=["[green]✅ Reply posted![/green]"],
+        error_details={"action": "reply", "replyTo": tweet_id},
+    )
+    if payload and not _structured_mode(as_json=as_json, as_yaml=as_yaml):
+        console.print("🔗 %s" % payload["url"])
 
 
 @cli.command(name="quote")
 @click.argument("tweet_id")
 @click.argument("text")
-def quote_tweet(tweet_id, text):
-    # type: (str, str) -> None
+@structured_output_options
+def quote_tweet(tweet_id, text, as_json, as_yaml):
+    # type: (str, str, bool, bool) -> None
     """Quote-tweet a tweet. TWEET_ID is the tweet to quote, TEXT is the commentary."""
     tweet_id = _normalize_tweet_id(tweet_id)
-    config = load_config()
-    try:
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            console.print("🔄 Quoting tweet %s..." % tweet_id)
+    def operation(client: TwitterClient) -> WritePayload:
         new_id = client.quote_tweet(tweet_id, text)
-        result = {"success": True, "action": "quote", "id": new_id, "quotedId": tweet_id, "url": "https://x.com/i/status/%s" % new_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Quote tweet posted![/green]")
-            console.print("🔗 https://x.com/i/status/%s" % new_id)
-    except RuntimeError as exc:
-        _exit_with_error(exc)
+        return {
+            "success": True,
+            "action": "quote",
+            "id": new_id,
+            "quotedId": tweet_id,
+            "url": "https://x.com/i/status/%s" % new_id,
+        }
+
+    payload = _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["🔄 Quoting tweet %s..." % tweet_id],
+        success_lines=["[green]✅ Quote tweet posted![/green]"],
+        error_details={"action": "quote", "quotedId": tweet_id},
+    )
+    if payload and not _structured_mode(as_json=as_json, as_yaml=as_yaml):
+        console.print("🔗 %s" % payload["url"])
 
 
 @cli.command(name="status")
@@ -754,125 +841,130 @@ def whoami(as_json, as_yaml):
 
 @cli.command(name="follow")
 @click.argument("screen_name")
-def follow_user(screen_name):
-    # type: (str,) -> None
+@structured_output_options
+def follow_user(screen_name, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Follow a user. SCREEN_NAME is the @handle (without @)."""
     screen_name = screen_name.lstrip("@")
-    config = load_config()
-    try:
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            console.print("👤 Looking up @%s..." % screen_name)
+
+    def operation(client: TwitterClient) -> WritePayload:
         user_id = client.resolve_user_id(screen_name)
-        if not structured:
-            console.print("➕ Following @%s..." % screen_name)
         client.follow_user(user_id)
-        result = {"success": True, "action": "follow", "screenName": screen_name, "userId": user_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Now following @%s[/green]" % screen_name)
-    except RuntimeError as exc:
-        _exit_with_error(exc)
+        return {"success": True, "action": "follow", "screenName": screen_name, "userId": user_id}
+
+    _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["👤 Looking up @%s..." % screen_name, "➕ Following @%s..." % screen_name],
+        success_lines=["[green]✅ Now following @%s[/green]" % screen_name],
+        error_details={"action": "follow", "screenName": screen_name},
+    )
 
 
 @cli.command(name="unfollow")
 @click.argument("screen_name")
-def unfollow_user(screen_name):
-    # type: (str,) -> None
+@structured_output_options
+def unfollow_user(screen_name, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Unfollow a user. SCREEN_NAME is the @handle (without @)."""
     screen_name = screen_name.lstrip("@")
-    config = load_config()
-    try:
-        client = _get_client(config)
-        structured = default_structured_format(as_json=False, as_yaml=False)
-        if not structured:
-            console.print("👤 Looking up @%s..." % screen_name)
+
+    def operation(client: TwitterClient) -> WritePayload:
         user_id = client.resolve_user_id(screen_name)
-        if not structured:
-            console.print("➖ Unfollowing @%s..." % screen_name)
         client.unfollow_user(user_id)
-        result = {"success": True, "action": "unfollow", "screenName": screen_name, "userId": user_id}
-        if structured:
-            emit_structured(result, as_json=(structured == "json"), as_yaml=(structured == "yaml"))
-        else:
-            console.print("[green]✅ Unfollowed @%s[/green]" % screen_name)
-    except RuntimeError as exc:
-        _exit_with_error(exc)
+        return {"success": True, "action": "unfollow", "screenName": screen_name, "userId": user_id}
+
+    _run_write_command(
+        as_json=as_json,
+        as_yaml=as_yaml,
+        operation=operation,
+        progress_lines=["👤 Looking up @%s..." % screen_name, "➖ Unfollowing @%s..." % screen_name],
+        success_lines=["[green]✅ Unfollowed @%s[/green]" % screen_name],
+        error_details={"action": "unfollow", "screenName": screen_name},
+    )
 
 
 @cli.command(name="delete")
 @click.argument("tweet_id")
 @click.confirmation_option(prompt="Are you sure you want to delete this tweet?")
-def delete_tweet(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def delete_tweet(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Delete a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("🗑️", "Deleting tweet", "delete_tweet", tweet_id)
+    _write_action("🗑️", "Deleting tweet", "delete_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def like(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def like(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Like a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("❤️", "Liking tweet", "like_tweet", tweet_id)
+    _write_action("❤️", "Liking tweet", "like_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def unlike(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def unlike(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Unlike a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("💔", "Unliking tweet", "unlike_tweet", tweet_id)
+    _write_action("💔", "Unliking tweet", "unlike_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def retweet(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def retweet(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Retweet a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("🔄", "Retweeting", "retweet", tweet_id)
+    _write_action("🔄", "Retweeting", "retweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def unretweet(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def unretweet(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Undo a retweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("🔄", "Undoing retweet", "unretweet", tweet_id)
+    _write_action("🔄", "Undoing retweet", "unretweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def favorite(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def favorite(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Bookmark (favorite) a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id)
+    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def bookmark(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def bookmark(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Bookmark a tweet. TWEET_ID is the numeric tweet ID."""
-    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id)
+    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def unfavorite(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def unfavorite(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Remove a tweet from bookmarks (unfavorite). TWEET_ID is the numeric tweet ID."""
-    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
+    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 @cli.command()
 @click.argument("tweet_id")
-def unbookmark(tweet_id):
-    # type: (str,) -> None
+@structured_output_options
+def unbookmark(tweet_id, as_json, as_yaml):
+    # type: (str, bool, bool) -> None
     """Remove a tweet from bookmarks. TWEET_ID is the numeric tweet ID."""
-    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
+    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
 
 
 if __name__ == "__main__":

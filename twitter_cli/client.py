@@ -10,6 +10,7 @@ import random
 import re
 import time
 import urllib.parse
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, cast
 
 import bs4
 from curl_cffi import requests as _cffi_requests
@@ -34,10 +35,14 @@ from .constants import (
 )
 from .models import Author, Metrics, Tweet, TweetMedia, UserProfile
 
+TimelineInstructionGetter = Callable[[Any], Any]
+TimelineParseResult = Tuple[List[Tweet], Optional[str]]
+SeenIdSet = Set[str]
+
 logger = logging.getLogger(__name__)
 
 # Shared curl_cffi session — impersonates Chrome 133 TLS/JA3/HTTP2 fingerprint
-_cffi_session = None  # type: Optional[Any]  # lazy init
+_cffi_session: Optional[Any] = None
 
 
 FALLBACK_QUERY_IDS = {
@@ -94,7 +99,7 @@ _DEFAULT_FEATURES = {
 FEATURES = dict(_DEFAULT_FEATURES)
 
 # Module-level caches (not thread-safe — CLI is single-threaded)
-_cached_query_ids = {}  # type: Dict[str, str]
+_cached_query_ids: Dict[str, str] = {}
 _bundles_scanned = False
 
 
@@ -142,7 +147,7 @@ def _get_cffi_session():
         target = _best_chrome_target()
         sync_chrome_version(target)  # align UA/sec-ch-ua with impersonate target
         _cffi_session = _cffi_requests.Session(
-            impersonate=target,
+            impersonate=cast(Any, target),
             proxies={"https": proxy, "http": proxy} if proxy else None,
         )
         logger.info("curl_cffi impersonating %s", target)
@@ -686,15 +691,16 @@ class TwitterClient:
 
         while len(tweets) < count and attempts < max_attempts:
             attempts += 1
+            variables: Dict[str, Any]
             if override_base_variables:
-                variables = {"count": min(count - len(tweets) + 5, 40)}  # type: Dict[str, Any]
+                variables = {"count": min(count - len(tweets) + 5, 40)}
             else:
                 variables = {
                     "count": min(count - len(tweets) + 5, 40),
                     "includePromotedContent": False,
                     "latestControlAvailable": True,
                     "requestContext": "launch",
-                }  # type: Dict[str, Any]
+                }
             if extra_variables:
                 variables.update(extra_variables)
             if cursor:

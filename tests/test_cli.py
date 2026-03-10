@@ -68,7 +68,7 @@ def test_cli_user_error_yaml(monkeypatch) -> None:
     assert result.exit_code == 1
     payload = yaml.safe_load(result.output)
     assert payload["ok"] is False
-    assert payload["error"]["code"] == "api_error"
+    assert payload["error"]["code"] == "not_found"
 
 
 def test_cli_tweet_accepts_shared_url_with_query(monkeypatch) -> None:
@@ -196,6 +196,62 @@ def test_cli_quote_command(monkeypatch) -> None:
     assert result.exit_code == 0
     assert calls[0]["tweet_id"] == "12345"
     assert calls[0]["text"] == "Interesting!"
+
+
+def test_cli_post_json_output(monkeypatch) -> None:
+    class FakeClient:
+        def create_tweet(self, text: str, reply_to_id=None) -> str:
+            assert text == "hello"
+            assert reply_to_id is None
+            return "999"
+
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None: FakeClient())
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["post", "hello", "--json"])
+    assert result.exit_code == 0
+    payload = yaml.safe_load(result.output)
+    assert payload["ok"] is True
+    assert payload["data"]["action"] == "post"
+    assert payload["data"]["id"] == "999"
+
+
+def test_cli_like_yaml_output(monkeypatch) -> None:
+    class FakeClient:
+        def like_tweet(self, tweet_id: str) -> bool:
+            assert tweet_id == "123"
+            return True
+
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None: FakeClient())
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["like", "123", "--yaml"])
+    assert result.exit_code == 0
+    payload = yaml.safe_load(result.output)
+    assert payload["ok"] is True
+    assert payload["data"]["action"] == "liking_tweet"
+    assert payload["data"]["id"] == "123"
+
+
+def test_cli_follow_json_output(monkeypatch) -> None:
+    class FakeClient:
+        def resolve_user_id(self, identifier: str) -> str:
+            assert identifier == "alice"
+            return "42"
+
+        def follow_user(self, user_id: str) -> bool:
+            assert user_id == "42"
+            return True
+
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None: FakeClient())
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["follow", "alice", "--json"])
+    assert result.exit_code == 0
+    payload = yaml.safe_load(result.output)
+    assert payload["ok"] is True
+    assert payload["data"]["action"] == "follow"
+    assert payload["data"]["userId"] == "42"
 
 
 def test_cli_follow_command(monkeypatch) -> None:
