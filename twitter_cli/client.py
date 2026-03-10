@@ -364,7 +364,7 @@ class TwitterClient:
         result = _deep_get(data, "data", "create_tweet", "tweet_results", "result")
         if result:
             return result.get("rest_id", "")
-        raise RuntimeError("Failed to create tweet")
+        raise TwitterAPIError(0, "Failed to create tweet")
 
     def delete_tweet(self, tweet_id):
         # type: (str) -> bool
@@ -439,7 +439,7 @@ class TwitterClient:
                     profile_image_url=user_data.get("profile_image_url_https", ""),
                     created_at=user_data.get("created_at", ""),
                 )
-        raise RuntimeError("Failed to fetch current user info")
+        raise TwitterAPIError(0, "Failed to fetch current user info")
 
     def quote_tweet(self, tweet_id, text):
         # type: (str, str) -> str
@@ -456,7 +456,7 @@ class TwitterClient:
         result = _deep_get(data, "data", "create_tweet", "tweet_results", "result")
         if result:
             return result.get("rest_id", "")
-        raise RuntimeError("Failed to create quote tweet")
+        raise TwitterAPIError(0, "Failed to create quote tweet")
 
     def follow_user(self, user_id):
         # type: (str) -> bool
@@ -468,7 +468,7 @@ class TwitterClient:
         session = _get_cffi_session()
         response = session.post(url, headers=headers, data=body, timeout=30)
         if response.status_code >= 400:
-            raise RuntimeError("Failed to follow user: HTTP %d" % response.status_code)
+            raise TwitterAPIError(response.status_code, "Failed to follow user")
         self._write_delay()
         return True
 
@@ -482,7 +482,7 @@ class TwitterClient:
         session = _get_cffi_session()
         response = session.post(url, headers=headers, data=body, timeout=30)
         if response.status_code >= 400:
-            raise RuntimeError("Failed to unfollow user: HTTP %d" % response.status_code)
+            raise TwitterAPIError(response.status_code, "Failed to unfollow user")
         self._write_delay()
         return True
 
@@ -632,7 +632,7 @@ class TwitterClient:
                 refreshed_query_id = _resolve_query_id(operation_name, prefer_fallback=False, url_fetch_fn=_url_fetch)
                 retry_url = _build_graphql_url(refreshed_query_id, operation_name, variables, features, field_toggles)
                 return self._api_get(retry_url)
-            raise RuntimeError(str(exc))
+            raise
 
     def _graphql_post(self, operation_name, variables, features=None):
         # type: (str, Dict[str, Any], Optional[Dict[str, Any]]) -> Dict[str, Any]
@@ -656,7 +656,7 @@ class TwitterClient:
                 _invalidate_query_id(operation_name)
                 refreshed = _resolve_query_id(operation_name, prefer_fallback=False, url_fetch_fn=_url_fetch)
                 return _do_post(refreshed)
-            raise RuntimeError(str(exc))
+            raise
 
     # ── Internal: HTTP request engine ────────────────────────────────
 
