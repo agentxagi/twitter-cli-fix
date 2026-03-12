@@ -9,7 +9,7 @@ import os
 import random
 import time
 import urllib.parse
-from typing import Any, Callable, Dict, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import bs4
 from curl_cffi import requests as _cffi_requests
@@ -51,6 +51,11 @@ from .parser import (
     parse_tweet_result,
     parse_user_result,
 )
+
+if TYPE_CHECKING:
+    from typing import Dict, List, Optional, Set, Tuple  # noqa: F401
+
+    from .models import Tweet  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

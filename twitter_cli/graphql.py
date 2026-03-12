@@ -10,7 +10,10 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import Dict
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any, Dict, Optional  # noqa: F401
 
 from .exceptions import QueryIdError
 

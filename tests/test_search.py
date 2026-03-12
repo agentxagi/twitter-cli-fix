@@ -24,6 +24,9 @@ class TestBuildSearchQuery:
     def test_lang(self) -> None:
         assert build_search_query("news", lang="fr") == "news lang:fr"
 
+    def test_lang_is_trimmed_and_lowercased(self) -> None:
+        assert build_search_query("news", lang=" EN ") == "news lang:en"
+
     def test_since(self) -> None:
         assert build_search_query("python", since="2026-01-01") == "python since:2026-01-01"
 
@@ -75,6 +78,30 @@ class TestBuildSearchQuery:
     def test_operators_only_no_query(self) -> None:
         result = build_search_query("", from_user="elonmusk", since="2026-03-01")
         assert result == "from:elonmusk since:2026-03-01"
+
+    def test_date_range_rejects_reversed_order(self) -> None:
+        try:
+            build_search_query("python", since="2026-03-02", until="2026-03-01")
+        except ValueError as exc:
+            assert "--since must be on or before --until" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError for reversed date range")
+
+    def test_invalid_since_rejected(self) -> None:
+        try:
+            build_search_query("python", since="not-a-date")
+        except ValueError as exc:
+            assert "--since must be in YYYY-MM-DD format" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError for invalid since date")
+
+    def test_negative_min_likes_rejected(self) -> None:
+        try:
+            build_search_query("python", min_likes=-1)
+        except ValueError as exc:
+            assert "--min-likes must be greater than or equal to 0" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError for negative min_likes")
 
     def test_whitespace_query_trimmed(self) -> None:
         assert build_search_query("  python  ", lang="en") == "python lang:en"

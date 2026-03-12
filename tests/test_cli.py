@@ -44,6 +44,26 @@ def test_cli_feed_json_input_path(tmp_path, tweet_factory) -> None:
     assert '"id": "1"' in result.output
 
 
+def test_cli_feed_input_accepts_structured_json_envelope(tmp_path, tweet_factory) -> None:
+    json_path = tmp_path / "tweets.json"
+    json_path.write_text(
+        (
+            "{\n"
+            '  "ok": true,\n'
+            '  "schema_version": "1",\n'
+            '  "data": %s\n'
+            "}\n"
+        )
+        % tweets_to_json([tweet_factory("1")]),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["feed", "--input", str(json_path), "--json"])
+    assert result.exit_code == 0
+    assert '"id": "1"' in result.output
+
+
 def test_print_tweet_table_truncates_text_by_default(tweet_factory) -> None:
     long_text = "A" * 140
     console = Console(record=True, width=400)
@@ -487,6 +507,24 @@ def test_cli_search_empty_query_no_options() -> None:
     result = runner.invoke(cli, ["search"])
     assert result.exit_code != 0
     assert "Provide a QUERY" in result.output
+
+
+def test_cli_search_invalid_date_rejected(monkeypatch) -> None:
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None: None)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["search", "python", "--since", "not-a-date"])
+    assert result.exit_code != 0
+    assert "--since must be in YYYY-MM-DD format" in result.output
+
+
+def test_cli_search_rejects_reversed_date_range(monkeypatch) -> None:
+    monkeypatch.setattr("twitter_cli.cli._get_client", lambda config=None: None)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["search", "python", "--since", "2026-03-02", "--until", "2026-03-01"])
+    assert result.exit_code != 0
+    assert "--since must be on or before --until" in result.output
 
 
 def test_cli_compact_mode(tmp_path, tweet_factory) -> None:

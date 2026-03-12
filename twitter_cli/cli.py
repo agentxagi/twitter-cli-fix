@@ -566,8 +566,8 @@ def user_posts(ctx, screen_name, max_count, as_json, as_yaml, output_file, full_
     multiple=True,
     help="Exclude content type (retweets, replies, links). Repeatable.",
 )
-@click.option("--min-likes", type=int, default=None, help="Minimum number of likes.")
-@click.option("--min-retweets", type=int, default=None, help="Minimum number of retweets.")
+@click.option("--min-likes", type=click.IntRange(min=0), default=None, help="Minimum number of likes.")
+@click.option("--min-retweets", type=click.IntRange(min=0), default=None, help="Minimum number of retweets.")
 @click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of tweets to fetch.")
 @structured_output_options
 @click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
@@ -590,18 +590,21 @@ def search(ctx, query, product, from_user, to_user, lang, since, until, has, exc
     """
     from .search import build_search_query
 
-    composed_query = build_search_query(
-        query,
-        from_user=from_user,
-        to_user=to_user,
-        lang=lang,
-        since=since,
-        until=until,
-        has=list(has) if has else None,
-        exclude=list(exclude) if exclude else None,
-        min_likes=min_likes,
-        min_retweets=min_retweets,
-    )
+    try:
+        composed_query = build_search_query(
+            query,
+            from_user=from_user,
+            to_user=to_user,
+            lang=lang,
+            since=since,
+            until=until,
+            has=list(has) if has else None,
+            exclude=list(exclude) if exclude else None,
+            min_likes=min_likes,
+            min_retweets=min_retweets,
+        )
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
     if not composed_query:
         raise click.UsageError("Provide a QUERY or at least one advanced filter (e.g. --from, --lang).")
 

@@ -8,7 +8,42 @@ Reference: https://help.x.com/en/using-x/x-advanced-search
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import List, Optional, Sequence
+
+_LANG_PATTERN = re.compile(r"^[A-Za-z][A-Za-z-]{1,14}$")
+
+
+def _normalize_handle(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = value.strip().lstrip("@")
+    return text or None
+
+
+def _normalize_lang(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = value.strip().lower()
+    if not text:
+        return None
+    if not _LANG_PATTERN.match(text):
+        raise ValueError("--lang must be an ISO language code like en or zh-cn")
+    return text
+
+
+def _normalize_date(flag_name: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("%s must be in YYYY-MM-DD format" % flag_name) from exc
+    return text
 
 
 def build_search_query(
@@ -44,14 +79,27 @@ def build_search_query(
         Composed query string ready for the rawQuery API parameter.
     """
     parts: List[str] = []
+    query_text = query.strip()
+    from_user = _normalize_handle(from_user)
+    to_user = _normalize_handle(to_user)
+    lang = _normalize_lang(lang)
+    since = _normalize_date("--since", since)
+    until = _normalize_date("--until", until)
 
-    if query and query.strip():
-        parts.append(query.strip())
+    if min_likes is not None and min_likes < 0:
+        raise ValueError("--min-likes must be greater than or equal to 0")
+    if min_retweets is not None and min_retweets < 0:
+        raise ValueError("--min-retweets must be greater than or equal to 0")
+    if since and until and since > until:
+        raise ValueError("--since must be on or before --until")
+
+    if query_text:
+        parts.append(query_text)
 
     if from_user:
-        parts.append("from:%s" % from_user.lstrip("@"))
+        parts.append("from:%s" % from_user)
     if to_user:
-        parts.append("to:%s" % to_user.lstrip("@"))
+        parts.append("to:%s" % to_user)
     if lang:
         parts.append("lang:%s" % lang)
     if since:
@@ -60,9 +108,10 @@ def build_search_query(
         parts.append("until:%s" % until)
     if has:
         for item in has:
-            parts.append("filter:%s" % item)
+            parts.append("filter:%s" % item.lower())
     if exclude:
         for item in exclude:
+            item = item.lower()
             if item == "retweets":
                 parts.append("-filter:retweets")
             elif item == "replies":

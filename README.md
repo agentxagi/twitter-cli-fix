@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/jackwener/twitter-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jackwener/twitter-cli/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/twitter-cli.svg)](https://pypi.org/project/twitter-cli/)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.8-blue.svg)](https://pypi.org/project/twitter-cli/)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://pypi.org/project/twitter-cli/)
 
 A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles without API keys.
 
@@ -97,8 +97,9 @@ twitter feed --filter
 # Feed
 twitter feed --max 50
 twitter feed --full-text
-twitter feed --json > tweets.json
+twitter feed --output tweets.json
 twitter feed --input tweets.json
+twitter feed --json                    # Structured stdout for scripts/agents
 
 # Bookmarks
 twitter bookmarks
@@ -110,6 +111,8 @@ twitter search "Claude Code"
 twitter search "AI agent" -t Latest --max 50
 twitter search "AI agent" --full-text
 twitter search "机器学习" --yaml
+twitter search "python" --from elonmusk --lang en --since 2026-01-01
+twitter search --from bbc --exclude retweets --has links
 twitter search "topic" -o results.json         # Save to file
 twitter search "trending" --filter              # Apply ranking filter
 

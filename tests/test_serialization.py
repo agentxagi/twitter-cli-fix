@@ -22,6 +22,21 @@ def test_tweets_json_roundtrip(tweet_factory) -> None:
     assert restored[1].lang == "zh"
 
 
+def test_tweets_from_json_accepts_structured_success_envelope(tweet_factory) -> None:
+    tweets = [tweet_factory("1")]
+    raw = (
+        "{\n"
+        '  "ok": true,\n'
+        '  "schema_version": "1",\n'
+        '  "data": %s\n'
+        "}\n"
+    ) % tweets_to_json(tweets)
+
+    restored = tweets_from_json(raw)
+
+    assert [tweet.id for tweet in restored] == ["1"]
+
+
 def test_compact_serialization(tweet_factory) -> None:
     from twitter_cli.serialization import tweet_to_compact_dict, tweets_to_compact_json
     import json

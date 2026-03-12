@@ -125,6 +125,8 @@ def tweet_from_dict(data: Dict[str, Any]) -> Tweet:
 def tweets_from_json(raw: str) -> List[Tweet]:
     """Parse a JSON string into Tweet objects."""
     payload = json.loads(raw)
+    if isinstance(payload, dict) and payload.get("ok") is True and isinstance(payload.get("data"), list):
+        payload = payload["data"]
     if not isinstance(payload, list):
         raise ValueError("Tweet JSON payload must be a list")
     return [tweet_from_dict(item) for item in payload if isinstance(item, dict)]
