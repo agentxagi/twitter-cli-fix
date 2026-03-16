@@ -298,6 +298,12 @@ Mode behavior:
 - `Invalid tweet JSON file`
   - Regenerate input using `twitter feed --json > tweets.json`.
 
+- **Windows: no output captured by pipe/subprocess** (AI agent integration)
+  - This is a **ConPTY** issue, not a twitter-cli bug. Windows Terminal's ConPTY pseudo-terminal can intercept pipe output from commands with network latency.
+  - **Fix**: Use **Git Bash** as your terminal shell and set `"windowsEnableConpty": false` in your terminal settings.
+  - If disabling ConPTY with PowerShell, emoji output may fail with `UnicodeEncodeError: 'gbk'`. Git Bash handles UTF-8 natively.
+  - Standard `subprocess.run(capture_output=True)` and file redirection (`> file 2>&1`) work correctly regardless of ConPTY.
+
 
 
 Structured error codes commonly include `not_authenticated`, `not_found`, `invalid_input`, `rate_limited`, and `api_error`.
@@ -552,6 +558,12 @@ score = likes_w * likes
   - **本地终端**：打开 **钥匙串访问** → 搜索 **"\<浏览器\> Safe Storage"** → **访问控制** → 添加你的终端 app → **保存更改**。
   - 或在弹出 Keychain 授权时点击 **"始终允许"**。
 - 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
+
+- **Windows 下 pipe/subprocess 无法捕获输出**（AI agent 集成场景）
+  - 这是 **ConPTY** 伪终端的问题，不是 twitter-cli 的 bug。Windows Terminal 的 ConPTY 可能拦截有网络延迟的命令的管道输出。
+  - **解决方案**：使用 **Git Bash** 并在终端设置中设置 `"windowsEnableConpty": false`。
+  - ConPTY 关闭后如用 PowerShell，emoji 可能会报 `UnicodeEncodeError: 'gbk'`。Git Bash 原生支持 UTF-8。
+  - 标准 `subprocess.run(capture_output=True)` 和文件重定向 (`> file 2>&1`) 不受此问题影响。
 
 
 

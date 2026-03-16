@@ -61,6 +61,7 @@ from .output import (
     default_structured_format,
     emit_error,
     emit_structured,
+    ensure_utf8_streams,
     error_payload,
     structured_output_options,
     success_payload,
@@ -303,6 +304,7 @@ def _run_write_command(
 def cli(ctx, verbose, compact):
     # type: (Any, bool, bool) -> None
     """twitter — Twitter/X CLI tool 🐦"""
+    ensure_utf8_streams()
     _setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["compact"] = compact

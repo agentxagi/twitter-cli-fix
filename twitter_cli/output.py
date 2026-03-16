@@ -14,6 +14,27 @@ _OUTPUT_ENV = "OUTPUT"
 _SCHEMA_VERSION = "1"
 
 
+def ensure_utf8_streams() -> None:
+    """Reconfigure stdout/stderr to use UTF-8 encoding on Windows.
+
+    On Windows with ConPTY disabled (e.g. winpty fallback + PowerShell),
+    the default encoding may be GBK/cp936 which cannot encode emoji.
+    Calling reconfigure(encoding='utf-8') once at startup fixes ALL
+    output paths — click.echo, rich Console, and plain print — without
+    needing per-call wrappers.
+
+    This is a no-op on Unix (already UTF-8) and safe to call multiple times.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass  # frozen or non-standard stream, skip
+
+
 def default_structured_format(*, as_json: bool, as_yaml: bool) -> str | None:
     """Resolve explicit flags first, then env override, then TTY default."""
     if as_json and as_yaml:
@@ -126,3 +147,4 @@ def emit_error(
     else:
         click.echo(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False, default_flow_style=False))
     return True
+
