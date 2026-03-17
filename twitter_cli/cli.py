@@ -32,6 +32,7 @@ Write commands:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
@@ -42,6 +43,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import click
 from rich.console import Console
+import yaml
 
 from . import __version__
 from .auth import get_cookies
@@ -935,7 +937,8 @@ def article(ctx, tweet_id, as_json, as_yaml, as_markdown, output_file):
 
     tweet_id = _normalize_tweet_id(tweet_id)
     config = load_config()
-    rich_output = use_rich_output(as_json=as_json, as_yaml=as_yaml, compact=False) and not as_markdown
+    mode = _structured_mode(as_json=as_json, as_yaml=as_yaml)
+    rich_output = (mode is None) and not as_markdown
     try:
         client = _get_client(config, quiet=not rich_output)
         if rich_output:
@@ -948,16 +951,28 @@ def article(ctx, tweet_id, as_json, as_yaml, as_markdown, output_file):
     except (TwitterError, RuntimeError) as exc:
         _exit_with_error(exc)
 
+    article_data = tweet_to_dict(article_tweet)
     markdown = article_to_markdown(article_tweet)
     if output_file:
-        Path(output_file).write_text(markdown, encoding="utf-8")
+        if as_markdown or mode is None:
+            rendered_output = markdown
+        elif mode == "json":
+            rendered_output = json.dumps(article_data, ensure_ascii=False, indent=2)
+        else:
+            rendered_output = yaml.safe_dump(
+                article_data,
+                allow_unicode=True,
+                sort_keys=False,
+                default_flow_style=False,
+            )
+        Path(output_file).write_text(rendered_output, encoding="utf-8")
         if rich_output:
-            console.print("💾 Saved article Markdown to %s\n" % output_file)
+            console.print("💾 Saved article output to %s\n" % output_file)
 
     if as_markdown:
         click.echo(markdown, nl=False)
         return
-    if emit_structured(tweet_to_dict(article_tweet), as_json=as_json, as_yaml=as_yaml):
+    if emit_structured(article_data, as_json=as_json, as_yaml=as_yaml):
         return
 
     print_article(article_tweet, console)
@@ -1098,12 +1113,13 @@ def post(text, reply_to, images, as_json, as_yaml):
       twitter post "Hello!" --image photo.jpg
       twitter post "Gallery" -i a.png -i b.png -i c.jpg
     """
-    action = "Replying to %s" % reply_to if reply_to else "Posting tweet"
+    normalized_reply_to = _normalize_tweet_id(reply_to) if reply_to else None
+    action = "Replying to %s" % normalized_reply_to if normalized_reply_to else "Posting tweet"
     rich_output = not _structured_mode(as_json=as_json, as_yaml=as_yaml)
 
     def operation(client: TwitterClient) -> WritePayload:
         media_ids = _upload_images(client, images, rich_output=rich_output)
-        tweet_id = client.create_tweet(text, reply_to_id=reply_to, media_ids=media_ids or None)
+        tweet_id = client.create_tweet(text, reply_to_id=normalized_reply_to, media_ids=media_ids or None)
         return {"success": True, "action": "post", "id": tweet_id, "url": "https://x.com/i/status/%s" % tweet_id}
 
     payload = _run_write_command(
@@ -1112,7 +1128,7 @@ def post(text, reply_to, images, as_json, as_yaml):
         operation=operation,
         progress_lines=["✏️  %s..." % action],
         success_lines=["[green]✅ Tweet posted![/green]"],
-        error_details={"action": "post", "replyTo": reply_to},
+        error_details={"action": "post", "replyTo": normalized_reply_to},
     )
     if payload and not _structured_mode(as_json=as_json, as_yaml=as_yaml):
         console.print("🔗 %s" % payload["url"])
