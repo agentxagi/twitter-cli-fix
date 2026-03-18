@@ -341,19 +341,43 @@ class TwitterClient:
             count: Max number of tweets to return.
             product: Search tab — "Top", "Latest", "People", "Photos", "Videos".
         """
-        return self._fetch_timeline(
-            "SearchTimeline",
-            count,
-            lambda data: _deep_get(
-                data, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions",
-            ),
-            extra_variables={
-                "rawQuery": query,
-                "querySource": "typed_query",
-                "product": product,
-            },
-            override_base_variables=True,
-        )
+        if count <= 0:
+            return []
+        count = min(count, self._max_count)
+        tweets = []  # type: List[Tweet]
+        seen_ids = set()  # type: Set[str]
+        cursor = None  # type: Optional[str]
+        attempts = 0
+        max_attempts = int(math.ceil(count / 20.0)) + 2
+
+        while len(tweets) < count and attempts < max_attempts:
+            attempts += 1
+            variables = {"count": min(count - len(tweets) + 5, 40)}
+            variables["rawQuery"] = query
+            variables["querySource"] = "typed_query"
+            variables["product"] = product
+            if cursor:
+                variables["cursor"] = cursor
+
+            data = self._graphql_post("SearchTimeline", variables, FEATURES)
+            new_tweets, next_cursor = parse_timeline_response(data, lambda d: _deep_get(
+                d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions",
+            ))
+
+            for tweet in new_tweets:
+                if tweet.id and tweet.id not in seen_ids:
+                    seen_ids.add(tweet.id)
+                    tweets.append(tweet)
+
+            if not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+
+            if len(tweets) < count and self._request_delay > 0:
+                jitter = self._request_delay * random.uniform(0.7, 1.5)
+                time.sleep(jitter)
+
+        return tweets[:count]
 
     def fetch_tweet_detail(self, tweet_id, count=20):
         # type: (str, int) -> List[Tweet]
